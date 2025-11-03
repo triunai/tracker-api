@@ -1,0 +1,33 @@
+# Web Framework
+fastapi>=0.104.1
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
+
+# PDF Processing
+pdfminer.six>=20221105
+
+# OCR (Optional - add when ready)
+# paddleocr==2.7.0
+# paddlepaddle==2.5.2
+
+# LLM & AI
+openai>=1.3.5
+
+# Database
+supabase>=2.0.3
+# psycopg2-binary - Not needed, Supabase client handles connections
+
+# Validation
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# Utilities
+python-dotenv>=1.0.0
+httpx>=0.25.2
+pillow>=10.1.0
+
+# Testing
+pytest>=7.4.3
+pytest-asyncio>=0.21.1
+pytest-cov>=4.1.0
+
