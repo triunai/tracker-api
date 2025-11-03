@@ -1,0 +1,120 @@
+# 🔑 Environment Variables Setup Guide
+
+## What You Need in Your .env File:
+
+Add these lines to your .env file. You can keep your existing VITE_* variables for the frontend.
+
+### 1. Supabase Variables (Backend)
+
+# Get these from: https://supabase.com/dashboard → Your Project → Settings → API
+
+SUPABASE_URL=https://rjjbhtywjmdnpaypmkfk.supabase.co
+SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5...  # Your existing anon key
+SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5...  # DIFFERENT from anon key!
+
+### 2. OpenRouter (for LLM parsing)
+
+# Get from: https://openrouter.ai/keys
+
+OPENROUTER_API_KEY=sk-or-v1-your-key-here
+
+### 3. Mistral (Optional - for OCR)
+
+# Get from: https://console.mistral.ai/
+
+MISTRAL_API_KEY=your-mistral-key  # You already have this!
+
+---
+
+## 🤔 Anon Key vs Service Role Key - What's the Difference?
+
+### SUPABASE_ANON_KEY (Public, Limited):
+- ✅ Used by your FRONTEND (React app)
+- ✅ Respects Row Level Security (RLS)
+- ✅ Users can only access their own data
+- ❌ Cannot bypass RLS
+- ❌ Cannot call certain admin functions
+
+### SUPABASE_SERVICE_ROLE_KEY (Private, Admin):
+- ✅ Used by your BACKEND (FastAPI)
+- ✅ Bypasses Row Level Security
+- ✅ Full admin access to database
+- ✅ Can call RPC functions without restrictions
+- ⚠️  NEVER expose in frontend!
+- ⚠️  Keep secret - only use server-side
+
+---
+
+## 📍 Where to Find Service Role Key:
+
+1. Go to: https://supabase.com/dashboard
+2. Select your project
+3. Settings → API
+4. Scroll down to "Project API keys"
+5. Copy the **service_role** key (NOT the anon/public key)
+
+⚠️ **Important**: This key has FULL database access. Never commit it to git or expose it in frontend!
+
+---
+
+## 🎯 Why We Need Service Role Key:
+
+The FastAPI backend needs to:
+1. Call RPC functions like `create_transaction_from_document`
+2. Update document status during processing
+3. Access documents table without RLS restrictions
+4. Write transactions on behalf of users
+
+Your frontend passes the user_id, and the backend enforces data isolation in code (not RLS).
+
+---
+
+## 📝 Complete .env Example:
+
+# Supabase (Backend)
+SUPABASE_URL=https://rjjbhtywjmdnpaypmkfk.supabase.co
+SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5...your-anon-key
+SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5...your-service-role-key
+
+# OpenRouter (for LLM parsing)
+OPENROUTER_API_KEY=sk-or-v1-your-openrouter-key
+
+# Mistral (optional, for OCR)
+MISTRAL_API_KEY=your-mistral-key
+
+# API Settings (these are fine as-is)
+API_V1_PREFIX=/api/v1
+CORS_ORIGINS=http://localhost:5173,https://tracker-zenith.vercel.app
+ENABLE_MISTRAL_FALLBACK=true
+PDF_TEXT_THRESHOLD=500
+ENV=development
+
+# Frontend variables (can stay, will be ignored by backend)
+VITE_SUPABASE_URL=https://rjjbhtywjmdnpaypmkfk.supabase.co
+VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5...
+
+---
+
+## ✅ After Adding Variables:
+
+Run the server again:
+
+uvicorn app.main:app --reload
+
+Then visit: http://localhost:8000/docs
+
+---
+
+## 🆘 Still Having Issues?
+
+Check:
+1. All three Supabase keys are set (URL, ANON_KEY, SERVICE_ROLE_KEY)
+2. OPENROUTER_API_KEY is set
+3. No typos in variable names
+4. .env file is in the project root (same folder as app/)
+5. Service role key is different from anon key
+
+---
+
+Need help? The service role key should be MUCH longer than the anon key and start differently!
+
