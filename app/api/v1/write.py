@@ -57,10 +57,40 @@ async def write_transaction(request: WriteRequest):
                 detail=f"Missing required field: {str(e)}"
             )
         
+        # Fetch user_id from document for RPC
+        try:
+            from app.services.supabase_service import get_supabase_client
+            supabase = get_supabase_client()
+            
+            doc_result = supabase.table('documents').select('user_id').eq('id', request.document_id).single().execute()
+            
+            if not doc_result.data:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Document {request.document_id} not found"
+                )
+            
+            user_id = doc_result.data['user_id']
+            logger.info(f"Fetched user_id={user_id} for document_id={request.document_id}")
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Failed to fetch document {request.document_id}: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to fetch document: {str(e)}"
+            )
+        
         # Create transaction via RPC
         try:
+            logger.info(f"Creating transaction: document_id={request.document_id}, user_id={user_id}, "
+                       f"category_id={category_id}, category_type={category_type}, "
+                       f"payment_method_id={payment_method_id}, amount={amount}, description={description}")
+            
             result = await create_transaction_from_document(
                 document_id=request.document_id,
+                user_id=user_id,
                 category_id=category_id,
                 category_type=category_type,
                 payment_method_id=payment_method_id,
@@ -69,19 +99,25 @@ async def write_transaction(request: WriteRequest):
             )
             
             if not result.get('success'):
-                raise Exception(result.get('message', 'Transaction creation failed'))
+                error_msg = result.get('error', 'Transaction creation failed (no error message from RPC)')
+                logger.error(f"RPC failed: {error_msg}")
+                raise Exception(error_msg)
             
             transaction_id = result.get('expense_id', 0)
+            logger.info(f"Successfully created transaction_id={transaction_id}")
             
         except Exception as e:
+            error_detail = f"RPC error: {str(e)}"
+            logger.error(f"Transaction creation failed for document {request.document_id}: {error_detail}")
+            
             await update_document_status(
                 document_id=request.document_id,
                 status="failed",
-                processing_error=f"Transaction creation failed: {str(e)}"
+                processing_error=error_detail
             )
             raise HTTPException(
                 status_code=500,
-                detail=f"Failed to create transaction: {str(e)}"
+                detail=error_detail
             )
         
         # Update document status to transaction_created
