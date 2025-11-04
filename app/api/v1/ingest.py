@@ -50,14 +50,17 @@ async def ingest_document(request: IngestRequest):
         
         logger.info(f"Detected document type: {ingest_kind}")
         
-        # For MVP, we'll use document_id from the frontend's insert_document_data RPC call
-        # The frontend should pass this in the request
-        # For now, we'll return a placeholder
-        # TODO: Coordinate with frontend to get document_id
-        document_id = 0  # Placeholder - should come from frontend
+        # Update document status in database with ingest results
+        try:
+            await update_document_status(
+                document_id=request.document_id,
+                status="ingested"
+            )
+        except Exception as e:
+            logger.warning(f"Failed to update document status: {str(e)}")
         
         return IngestResponse(
-            document_id=document_id,
+            document_id=request.document_id,
             ingest_kind=ingest_kind,
             sha256=sha256_hash,
             storage_url=request.file_url

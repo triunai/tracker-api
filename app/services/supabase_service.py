@@ -109,6 +109,7 @@ async def update_document_status(
 
 async def create_transaction_from_document(
     document_id: int,
+    user_id: str,
     category_id: int,
     category_type: str,
     payment_method_id: int,
@@ -116,10 +117,15 @@ async def create_transaction_from_document(
     description: str,
 ) -> Dict[str, Any]:
     """
-    Create transaction from processed document using existing RPC.
+    Create transaction from processed document using API-specific RPC.
+    
+    ⚠️ NOTE: This function is NO LONGER CALLED by the /write endpoint.
+    The frontend calls create_transaction_from_document RPC directly when user clicks "Create Transaction".
+    This function is kept here for potential future use only.
     
     Args:
         document_id: Document ID.
+        user_id: User UUID (fetched from document).
         category_id: Category ID.
         category_type: 'expense' or 'income'.
         payment_method_id: Payment method ID.
@@ -127,7 +133,7 @@ async def create_transaction_from_document(
         description: Transaction description.
     
     Returns:
-        Dict with success status, expense_id, and message.
+        Dict with success status, expense_id, and error message.
     
     Raises:
         Exception: If transaction creation fails.
@@ -135,22 +141,33 @@ async def create_transaction_from_document(
     try:
         supabase = get_supabase_client()
         
-        result = supabase.rpc('create_transaction_from_document', {
+        params = {
             'p_document_id': document_id,
+            'p_user_id': user_id,
             'p_category_id': category_id,
             'p_category_type': category_type,
             'p_payment_method_id': payment_method_id,
             'p_amount': amount,
             'p_description': description,
-        }).execute()
+        }
+        
+        logger.info(f"Calling RPC api_create_transaction_from_document with params: {params}")
+        
+        result = supabase.rpc('api_create_transaction_from_document', params).execute()
+        
+        logger.info(f"RPC response: {result.data}")
         
         if not result.data:
-            raise Exception("RPC call returned no data")
+            error_msg = "RPC call returned no data"
+            logger.error(error_msg)
+            raise Exception(error_msg)
         
         response_data = result.data
         
         if not response_data.get('success'):
-            raise Exception(response_data.get('message', 'Transaction creation failed'))
+            error_msg = response_data.get('error', 'Transaction creation failed (no error message)')
+            logger.error(f"RPC returned failure: {error_msg}")
+            raise Exception(error_msg)
         
         logger.info(f"Created transaction {response_data.get('expense_id')} from document {document_id}")
         return response_data
