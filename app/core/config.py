@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     ENABLE_LLM_VALIDATION: bool = False
     
     # Validation Settings
-    PDF_TEXT_THRESHOLD: int = 500
+    PDF_TEXT_THRESHOLD: int = 50  # Lowered from 500 for receipt detection
     TOTALS_TOLERANCE: float = 0.01
     OCR_TIMEOUT_MS: int = 8000
     PARSE_TIMEOUT_MS: int = 12000
