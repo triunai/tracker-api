@@ -7,6 +7,7 @@ from datetime import datetime
 
 class IngestRequest(BaseModel):
     """Request to ingest a document."""
+    document_id: int
     user_id: str
     file_url: str
     mime_type: str
@@ -46,7 +47,7 @@ class ParseRequest(BaseModel):
 class FieldValue(BaseModel):
     """A field value with confidence score."""
     value: str | float | int | None
-    confidence: float
+    confidence: float = 0.0  # Default to 0.0 if LLM doesn't provide confidence
 
 
 class ParsedItem(BaseModel):
@@ -55,7 +56,7 @@ class ParsedItem(BaseModel):
     qty: float
     unit_price: float
     amount: float
-    confidence: float
+    confidence: float = 0.0  # Default to 0.0 if LLM doesn't provide confidence
 
 
 class ParseResponse(BaseModel):
@@ -99,7 +100,7 @@ class WriteRequest(BaseModel):
 class WriteResponse(BaseModel):
     """Response from write."""
     transaction_id: int
-    status: Literal["created", "skipped_duplicate"]
+    status: Literal["created", "skipped_duplicate", "ready_for_user"]
 
 
 

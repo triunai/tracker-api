@@ -119,6 +119,10 @@ async def create_transaction_from_document(
     """
     Create transaction from processed document using API-specific RPC.
     
+    ⚠️ NOTE: This function is NO LONGER CALLED by the /write endpoint.
+    The frontend calls create_transaction_from_document RPC directly when user clicks "Create Transaction".
+    This function is kept here for potential future use only.
+    
     Args:
         document_id: Document ID.
         user_id: User UUID (fetched from document).
