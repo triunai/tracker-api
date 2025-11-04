@@ -4,7 +4,7 @@ import io
 import logging
 import hashlib
 from typing import Tuple, Literal
-from pdfminer.high_level import extract_text
+from pdfminer.high_level import extract_text as extract_text_from_pdf
 from pdfminer.pdfparser import PDFParser
 from pdfminer.pdfdocument import PDFDocument
 import httpx
@@ -29,22 +29,31 @@ def detect_pdf_type(pdf_bytes: bytes) -> Literal["digital", "scanned"]:
         "digital" if PDF has extractable text, "scanned" if image-based.
     """
     try:
-        # Try to extract text
-        text = extract_text(io.BytesIO(pdf_bytes))
+        # Try to extract text using pdfminer
+        text = extract_text_from_pdf(io.BytesIO(pdf_bytes))
         
         # Clean text (remove whitespace)
         clean_text = text.strip()
+        text_length = len(clean_text)
+        
+        # Log first 200 chars for debugging
+        preview = clean_text[:200] if clean_text else "(no text)"
+        logger.info(f"PDF text extraction: {text_length} chars. Preview: {preview}")
+        
+        # Lower threshold for receipts (they're usually short)
+        threshold = 50  # Reduced from 500
         
         # If we got substantial text, it's digital
-        if len(clean_text) > settings.PDF_TEXT_THRESHOLD:
-            logger.info(f"Detected digital PDF (text length: {len(clean_text)})")
+        if text_length > threshold:
+            logger.info(f"✅ Detected DIGITAL PDF ({text_length} > {threshold} chars)")
             return "digital"
         else:
-            logger.info(f"Detected scanned PDF (text length: {len(clean_text)})")
+            logger.info(f"📄 Detected SCANNED PDF ({text_length} <= {threshold} chars)")
             return "scanned"
             
     except Exception as e:
-        logger.warning(f"Error detecting PDF type: {str(e)}, defaulting to scanned")
+        logger.error(f"❌ PDF type detection FAILED: {type(e).__name__}: {str(e)}")
+        logger.error(f"Defaulting to 'scanned' - will attempt OCR")
         return "scanned"
 
 
@@ -62,7 +71,7 @@ def extract_pdf_text(pdf_bytes: bytes) -> str:
         Exception: If extraction fails.
     """
     try:
-        text = extract_text(io.BytesIO(pdf_bytes))
+        text = extract_text_from_pdf(io.BytesIO(pdf_bytes))
         
         if not text or len(text.strip()) < 50:
             raise Exception("Insufficient text extracted from PDF")
@@ -90,6 +99,14 @@ async def ocr_with_mistral(file_bytes: bytes, mime_type: str) -> str:
         Exception: If OCR fails.
     """
     try:
+        # Mistral vision API only supports images, not PDFs
+        if mime_type == "application/pdf":
+            raise Exception(
+                "Mistral OCR does not support PDFs. "
+                "This PDF appears to be scanned (no text layer). "
+                "Please convert to image (JPG/PNG) or use a PDF with text layer."
+            )
+        
         if not settings.MISTRAL_API_KEY:
             raise Exception("Mistral API key not configured")
         
