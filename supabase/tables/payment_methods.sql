@@ -9,3 +9,29 @@ create table public.payment_methods (
   constraint payment_methods_pkey primary key (id),
   constraint payment_methods_method_name_key unique (method_name)
 ) TABLESPACE pg_default;
+
+
+//GLOBAL DEFAULTS DOWN HERE
+
+[
+  {
+    "id": 1,
+    "method_name": "QR"
+  },
+  {
+    "id": 2,
+    "method_name": "Cash"
+  },
+  {
+    "id": 3,
+    "method_name": "Debit"
+  },
+  {
+    "id": 4,
+    "method_name": "Touch 'n Go"
+  },
+  {
+    "id": 5,
+    "method_name": "Online Banking"
+  }
+]
