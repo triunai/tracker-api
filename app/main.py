@@ -17,8 +17,7 @@ app = FastAPI(
 ALLOWED_ORIGINS = [
     "http://localhost:3000",  # Local dev
     "http://127.0.0.1:3000",  # Alternative localhost
-    # Add your production frontend URL here when deploying:
-    # "https://your-frontend.vercel.app",
+    "https://tracker-zenith.onrender.com",  # Production frontend
 ]
 
 app.add_middleware(
