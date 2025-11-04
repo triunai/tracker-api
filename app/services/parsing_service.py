@@ -3,12 +3,57 @@
 import json
 import logging
 import hashlib
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 from openai import OpenAI
 from app.core.config import settings
 from app.models.document import FieldValue, ParsedItem
 
 logger = logging.getLogger(__name__)
+
+
+async def fetch_categories_and_payment_methods() -> Dict[str, List[Dict[str, Any]]]:
+    """
+    Fetch available categories and payment methods from Supabase.
+    
+    Returns:
+        Dictionary with 'expense_categories', 'income_categories', and 'payment_methods' lists.
+    """
+    from app.services.supabase_service import get_supabase_client
+    
+    try:
+        supabase = get_supabase_client()
+        
+        # Fetch expense categories (global and user-specific)
+        expense_result = supabase.table('expense_category')\
+            .select('id, name, description')\
+            .eq('isdeleted', False)\
+            .execute()
+        
+        # Fetch income categories
+        income_result = supabase.table('income_category')\
+            .select('id, name, description')\
+            .eq('isdeleted', False)\
+            .execute()
+        
+        # Fetch payment methods
+        payment_result = supabase.table('payment_methods')\
+            .select('id, method_name')\
+            .eq('isdeleted', False)\
+            .execute()
+        
+        return {
+            'expense_categories': expense_result.data or [],
+            'income_categories': income_result.data or [],
+            'payment_methods': payment_result.data or []
+        }
+    except Exception as e:
+        logger.warning(f"Failed to fetch categories/payment methods: {str(e)}")
+        # Return empty lists as fallback
+        return {
+            'expense_categories': [],
+            'income_categories': [],
+            'payment_methods': []
+        }
 
 
 def get_openai_client() -> OpenAI:
@@ -28,20 +73,53 @@ def get_openai_client() -> OpenAI:
         raise Exception("No LLM API key configured. Set OPENROUTER_API_KEY or OPENAI_API_KEY")
 
 
-def build_parsing_prompt(raw_text: str) -> str:
+def build_parsing_prompt(
+    raw_text: str,
+    categories: List[Dict[str, Any]],
+    income_categories: List[Dict[str, Any]],
+    payment_methods: List[Dict[str, Any]]
+) -> str:
     """
-    Build structured extraction prompt for LLM.
+    Build structured extraction prompt for LLM with category suggestions.
     
     Args:
         raw_text: Raw text extracted from document.
+        categories: List of available expense categories.
+        income_categories: List of available income categories.
+        payment_methods: List of available payment methods.
     
     Returns:
         Formatted prompt.
     """
+    # Format categories for prompt
+    categories_str = "\n".join([
+        f"  {cat['id']}: {cat['name']} - {cat['description']}"
+        for cat in categories
+    ]) if categories else "  No categories available"
+    
+    income_categories_str = "\n".join([
+        f"  {cat['id']}: {cat['name']} - {cat['description']}"
+        for cat in income_categories
+    ]) if income_categories else "  No income categories available"
+    
+    payment_methods_str = "\n".join([
+        f"  {pm['id']}: {pm['method_name']}"
+        for pm in payment_methods
+    ]) if payment_methods else "  No payment methods available"
+    
     return f"""Extract structured information from this receipt/invoice text.
 
 TEXT:
 {raw_text}
+
+AVAILABLE EXPENSE CATEGORIES:
+{categories_str}
+
+AVAILABLE INCOME CATEGORIES:
+{income_categories_str}
+
+AVAILABLE PAYMENT METHODS:
+{payment_methods_str}
 
 Extract the following fields with confidence scores (0.0-1.0):
 - merchant: Business name
@@ -49,9 +127,21 @@ Extract the following fields with confidence scores (0.0-1.0):
 - total: Total amount (numeric)
 - subtotal: Subtotal before tax (numeric, optional)
 - tax: Tax amount (numeric, optional)
-- currency: Currency code (MYR, USD, etc.)
+- currency: Currency code (default to MYR if not clear)
 - payment_method: Payment method if mentioned
 - items: List of line items with name, qty, unit_price, amount
+- transaction_type: "expense" or "income" (default to "expense")
+- suggested_category_id: Best matching category ID based on merchant name, items, and context
+- suggested_payment_method_id: Best matching payment method ID if payment type is clear
+
+IMPORTANT CATEGORY MATCHING RULES:
+- For restaurants, cafes, food delivery → Use "Eating Out" category
+- For supermarkets, grocery stores → Use "Groceries" category
+- For petrol stations, gas stations → Use "Petrol" category
+- For medical, pharmacy, health → Use "Health" category
+- Match based on merchant name AND item descriptions
+- If unclear, choose the most reasonable category
+- Always provide a suggested_category_id (don't leave it null)
 
 Return ONLY valid JSON in this exact format:
 {{
@@ -62,6 +152,9 @@ Return ONLY valid JSON in this exact format:
   "tax": {{"value": 1.00, "confidence": 0.85}},
   "currency": {{"value": "MYR", "confidence": 0.90}},
   "payment_method": {{"value": "Credit Card", "confidence": 0.70}},
+  "transaction_type": {{"value": "expense", "confidence": 0.95}},
+  "suggested_category_id": {{"value": 2, "confidence": 0.85}},
+  "suggested_payment_method_id": {{"value": 1, "confidence": 0.70}},
   "items": [
     {{"name": "Item 1", "qty": 2, "unit_price": 5.00, "amount": 10.00, "confidence": 0.90}},
     {{"name": "Item 2", "qty": 1, "unit_price": 1.50, "amount": 1.50, "confidence": 0.85}}
@@ -70,17 +163,18 @@ Return ONLY valid JSON in this exact format:
 }}
 
 Important:
-- Use null for missing values
+- Use null for missing values EXCEPT suggested_category_id (always suggest one)
 - All amounts should be numeric (not strings)
 - Date must be YYYY-MM-DD format
 - Confidence should reflect certainty of extraction
 - If math doesn't add up, note in "notes" field
+- Currency should default to MYR if unclear
 """
 
 
 async def parse_receipt_with_llm(raw_text: str, document_id: int) -> Dict[str, Any]:
     """
-    Parse receipt text using LLM to extract structured data.
+    Parse receipt text using LLM to extract structured data with category suggestions.
     
     Args:
         raw_text: Raw text from OCR/extraction.
@@ -95,7 +189,16 @@ async def parse_receipt_with_llm(raw_text: str, document_id: int) -> Dict[str, A
     try:
         client = get_openai_client()
         
-        prompt = build_parsing_prompt(raw_text)
+        # Fetch categories and payment methods
+        logger.info(f"Fetching categories and payment methods for document {document_id}")
+        options = await fetch_categories_and_payment_methods()
+        
+        prompt = build_parsing_prompt(
+            raw_text,
+            options['expense_categories'],
+            options['income_categories'],
+            options['payment_methods']
+        )
         
         # Determine model based on configuration
         if settings.OPENROUTER_API_KEY:

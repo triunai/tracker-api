@@ -76,20 +76,41 @@ async def parse_document(request: ParseRequest):
             date = parsed_data.get('date', {}).get('value')
             total = parsed_data.get('total', {}).get('value')
             currency = parsed_data.get('currency', {}).get('value', 'MYR')
+            transaction_type = parsed_data.get('transaction_type', {}).get('value', 'expense')
+            
+            # Extract suggested IDs
+            suggested_category_id = parsed_data.get('suggested_category_id', {}).get('value')
+            suggested_payment_method_id = parsed_data.get('suggested_payment_method_id', {}).get('value')
             
             from app.services.parsing_service import calculate_overall_confidence
             confidence_score = calculate_overall_confidence(parsed_data)
             
-            await update_document_status(
-                document_id=request.document_id,
-                status="parsed",
-                vendor_name=merchant,
-                transaction_date=date,
-                total_amount=total,
-                currency=currency,
-                transaction_type="expense",
-                ai_confidence_score=confidence_score
-            )
+            # Update document with parsed data and suggestions
+            from app.services.supabase_service import get_supabase_client
+            supabase = get_supabase_client()
+            
+            update_data = {
+                'status': 'parsed',
+                'vendor_name': merchant,
+                'transaction_date': date,
+                'total_amount': total,
+                'currency': currency,
+                'transaction_type': transaction_type,
+                'ai_confidence_score': confidence_score,
+                'updated_at': 'now()'
+            }
+            
+            # Add suggested IDs if present
+            if suggested_category_id:
+                update_data['suggested_category_id'] = suggested_category_id
+                logger.info(f"Suggested category ID: {suggested_category_id}")
+            
+            if suggested_payment_method_id:
+                update_data['suggested_payment_method_id'] = suggested_payment_method_id
+                logger.info(f"Suggested payment method ID: {suggested_payment_method_id}")
+            
+            supabase.table('documents').update(update_data).eq('id', request.document_id).execute()
+            
         except Exception as e:
             logger.warning(f"Failed to update document status: {str(e)}")
         
