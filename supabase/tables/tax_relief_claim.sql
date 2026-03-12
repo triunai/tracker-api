@@ -5,6 +5,7 @@ create table public.tax_relief_claim (
   tax_relief_category_id bigint not null,
   expense_item_id bigint null,
   document_id bigint null,
+  dependent_id bigint null,
   claim_source text not null default 'manual'::text,
   claimed_amount numeric(10, 2) not null default 0,
   eligible_amount numeric(10, 2) null,
@@ -22,6 +23,7 @@ create table public.tax_relief_claim (
   constraint fk_tax_relief_claim_tax_relief_category foreign key (tax_relief_category_id) references tax_relief_category (id),
   constraint fk_tax_relief_claim_expense_item foreign key (expense_item_id) references expense_item (id) on delete set null,
   constraint fk_tax_relief_claim_document foreign key (document_id) references documents (id) on delete set null,
+  constraint fk_tax_relief_claim_dependent foreign key (dependent_id) references tax_dependent (id) on delete set null,
   constraint tax_relief_claim_claim_source_check check (
     claim_source = any (array['auto_mapped'::text, 'manual'::text, 'fixed_relief'::text])
   ),
@@ -45,6 +47,13 @@ where
 create index IF not exists idx_tax_relief_claim_category_id on public.tax_relief_claim using btree (tax_relief_category_id) TABLESPACE pg_default
 where
   (isdeleted = false);
+
+create index IF not exists idx_tax_relief_claim_dependent_id on public.tax_relief_claim using btree (dependent_id) TABLESPACE pg_default
+where
+  (
+    (dependent_id is not null)
+    and (isdeleted = false)
+  );
 
 create unique index IF not exists ux_tax_relief_claim_expense_item on public.tax_relief_claim using btree (tax_year_id, expense_item_id) TABLESPACE pg_default
 where
