@@ -24,6 +24,9 @@ create table public.documents (
   updated_by uuid null,
   updated_at timestamp without time zone null,
   isdeleted boolean not null default false,
+  content_hash text null,
+  processing_started_at timestamp with time zone null,
+  processing_log jsonb not null default '[]'::jsonb,
   constraint documents_pkey primary key (id),
   constraint documents_suggested_payment_method_id_fkey foreign KEY (suggested_payment_method_id) references payment_methods (id),
   constraint documents_created_expense_id_fkey foreign KEY (created_expense_id) references expense (id),
@@ -79,3 +82,24 @@ create index IF not exists idx_documents_status on public.documents using btree 
 create index IF not exists idx_documents_created_at on public.documents using btree (created_at) TABLESPACE pg_default;
 
 create index IF not exists idx_documents_transaction_date on public.documents using btree (transaction_date) TABLESPACE pg_default;
+
+create index IF not exists idx_documents_content_hash on public.documents using btree (content_hash) TABLESPACE pg_default
+where
+  (
+    (content_hash is not null)
+    and (isdeleted = false)
+  );
+
+create index IF not exists idx_documents_processing_started_at on public.documents using btree (processing_started_at) TABLESPACE pg_default
+where
+  (
+    (status = 'processing'::text)
+    and (processing_started_at is not null)
+  );
+
+create index IF not exists idx_documents_stuck_detection on public.documents using btree (status, processing_started_at) TABLESPACE pg_default
+where
+  (
+    (status = 'processing'::text)
+    and (isdeleted = false)
+  );
