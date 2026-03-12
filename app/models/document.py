@@ -1,6 +1,6 @@
 """Document models matching frontend interface."""
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, Literal
 from datetime import datetime
 
@@ -59,13 +59,30 @@ class ParsedItem(BaseModel):
     confidence: float = 0.0  # Default to 0.0 if LLM doesn't provide confidence
 
 
+class TaxReliefSuggestion(BaseModel):
+    """Tax-relief suggestion attached to a parsed receipt."""
+
+    tax_relief_category_id: int
+    category_code: str
+    category_name: str
+    display_group: str
+    max_amount: Optional[float] = None
+    mapping_strength: str
+    confidence: float
+    requires_manual_override: bool
+    requires_manual_confirmation: bool
+    should_auto_apply: bool
+    notes: Optional[str] = None
+
+
 class ParseResponse(BaseModel):
     """Response from parsing."""
     document_id: int
     fields: dict[str, FieldValue]
     items: list[ParsedItem]
     notes: Optional[str] = None
-    inconsistencies: list[str] = []
+    inconsistencies: list[str] = Field(default_factory=list)
+    tax_relief_suggestions: list[TaxReliefSuggestion] = Field(default_factory=list)
     parser_model: str
     signature: str
 
@@ -86,8 +103,8 @@ class ValidateResponse(BaseModel):
     """Response from validation."""
     status: Literal["approved", "needs_review", "rejected"]
     normalized_json: dict
-    reasons: list[ValidationReason] = []
-    badges: dict[str, str] = {}
+    reasons: list[ValidationReason] = Field(default_factory=list)
+    badges: dict[str, str] = Field(default_factory=dict)
 
 
 class WriteRequest(BaseModel):

@@ -1,6 +1,7 @@
 """LLM parsing endpoint."""
 
 import logging
+from datetime import UTC, datetime
 from fastapi import APIRouter, Depends, HTTPException
 from app.models.document import ParseRequest, ParseResponse, FieldValue, ParsedItem
 from app.services.supabase_service import update_document_status
@@ -9,6 +10,11 @@ from app.core.auth import get_current_user
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _current_timestamp() -> str:
+    """Return a UTC ISO timestamp for PostgREST updates."""
+    return datetime.now(UTC).replace(tzinfo=None).isoformat()
 
 
 @router.post("", response_model=ParseResponse)
@@ -98,7 +104,7 @@ async def parse_document(request: ParseRequest, current_user: str = Depends(get_
                 'currency': currency,
                 'transaction_type': transaction_type,
                 'ai_confidence_score': confidence_score,
-                'updated_at': 'now()'
+                'updated_at': _current_timestamp()
             }
             
             # Add suggested IDs if present
@@ -123,6 +129,7 @@ async def parse_document(request: ParseRequest, current_user: str = Depends(get_
             items=items,
             notes=parsed_data.get('notes'),
             inconsistencies=parsed_data.get('inconsistencies', []),
+            tax_relief_suggestions=parsed_data.get('tax_relief_suggestions', []),
             parser_model=parsed_data.get('parser_model', 'unknown'),
             signature=parsed_data.get('signature', '')
         )

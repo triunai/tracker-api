@@ -318,6 +318,8 @@ class ReliefSuggestion(BaseModel):
     mapping_strength: str  # 'strong', 'suggested', 'manual_only', 'excluded'
     confidence: float
     requires_manual_override: bool
+    requires_manual_confirmation: bool
+    should_auto_apply: bool
     notes: Optional[str] = None
 
 
