@@ -2,6 +2,7 @@ create table public.expense_item (
   id bigserial not null,
   expense_id bigint not null,
   category_id bigint null,
+  tax_relief_category_id bigint null,
   amount numeric(10, 2) not null,
   description text null,
   created_by uuid null,
@@ -15,6 +16,7 @@ create table public.expense_item (
   constraint fk_expense_item_category foreign KEY (category_id) references expense_category (id),
   constraint fk_expense_item_expense foreign KEY (expense_id) references expense (id),
   constraint fk_expense_item_income_category foreign KEY (income_category_id) references income_category (id),
+  constraint fk_expense_item_tax_relief_category foreign KEY (tax_relief_category_id) references tax_relief_category (id),
   constraint check_single_category check (
     (
       (
@@ -30,3 +32,9 @@ create table public.expense_item (
 ) TABLESPACE pg_default;
 
 create index IF not exists idx_expense_item_fts on public.expense_item using gin (fts) TABLESPACE pg_default;
+
+create index IF not exists idx_expense_item_expense_id on public.expense_item using btree (expense_id) TABLESPACE pg_default;
+
+create index IF not exists idx_expense_item_tax_relief_category_id on public.expense_item using btree (tax_relief_category_id) TABLESPACE pg_default
+where
+  (tax_relief_category_id is not null);

@@ -14,3 +14,5 @@ create table public.budget (
   constraint budget_pkey primary key (id),
   constraint fk_budget_user foreign KEY (user_id) references auth.users (id)
 ) TABLESPACE pg_default;
+
+create index IF not exists idx_budget_user_id on public.budget using btree (user_id) TABLESPACE pg_default;

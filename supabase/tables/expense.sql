@@ -33,6 +33,8 @@ create index IF not exists idx_expense_embedding on public.expense using hnsw (e
 with
   (m = '16', ef_construction = '64') TABLESPACE pg_default;
 
+create index IF not exists idx_expense_user_id on public.expense using btree (user_id) TABLESPACE pg_default;
+
 create trigger expense_fts_update BEFORE INSERT
 or
 update on expense for EACH row
