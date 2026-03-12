@@ -7,20 +7,27 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
+# Singleton: reuse connection pool across requests
+_supabase_clients: dict = {}
+
 
 def get_supabase_client(service_role: bool = True) -> Client:
     """
-    Get configured Supabase client.
-    
+    Get configured Supabase client (singleton per key type).
+
     Args:
         service_role: If True, uses service role key (admin access).
                      If False, uses anon key (user-level access).
-    
+
     Returns:
         Configured Supabase client.
     """
-    key = settings.SUPABASE_SERVICE_ROLE_KEY if service_role else settings.SUPABASE_ANON_KEY
-    return create_client(settings.SUPABASE_URL, key)
+    cache_key = "service_role" if service_role else "anon"
+    if cache_key not in _supabase_clients:
+        key = settings.SUPABASE_SERVICE_ROLE_KEY if service_role else settings.SUPABASE_ANON_KEY
+        _supabase_clients[cache_key] = create_client(settings.SUPABASE_URL, key)
+        logger.info(f"Created Supabase client ({cache_key})")
+    return _supabase_clients[cache_key]
 
 
 async def download_file_from_storage(file_path: str) -> bytes:
@@ -45,11 +52,13 @@ async def download_file_from_storage(file_path: str) -> bytes:
         if not response:
             raise Exception(f"Failed to download file: {file_path}")
         
-        logger.info(f"Downloaded file: {file_path} ({len(response)} bytes)")
+        # PII-safe: redacted per security audit
+        logger.info(f"Downloaded file ({len(response)} bytes)")
         return response
         
     except Exception as e:
-        logger.error(f"Error downloading file {file_path}: {str(e)}")
+        # PII-safe: redacted per security audit
+        logger.error(f"Error downloading file: {str(e)}")
         raise
 
 
@@ -151,11 +160,13 @@ async def create_transaction_from_document(
             'p_description': description,
         }
         
-        logger.info(f"Calling RPC api_create_transaction_from_document with params: {params}")
+        # PII-safe: redacted per security audit
+        logger.info(f"Calling RPC api_create_transaction_from_document for user_id={user_id}, document_id={document_id}")
         
         result = supabase.rpc('api_create_transaction_from_document', params).execute()
         
-        logger.info(f"RPC response: {result.data}")
+        # PII-safe: redacted per security audit
+        logger.info(f"RPC response received for document {document_id}: success={result.data.get('success') if result.data else None}")
         
         if not result.data:
             error_msg = "RPC call returned no data"

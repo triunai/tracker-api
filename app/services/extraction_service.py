@@ -12,6 +12,12 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
+# Singleton: reuse connection pool across requests
+_httpx_client: httpx.AsyncClient = httpx.AsyncClient(
+    timeout=httpx.Timeout(connect=5.0, read=30.0, write=5.0, pool=5.0),
+    limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
+)
+
 
 def calculate_sha256(content: bytes) -> str:
     """Calculate SHA256 hash of file content."""
@@ -36,9 +42,8 @@ def detect_pdf_type(pdf_bytes: bytes) -> Literal["digital", "scanned"]:
         clean_text = text.strip()
         text_length = len(clean_text)
         
-        # Log first 200 chars for debugging
-        preview = clean_text[:200] if clean_text else "(no text)"
-        logger.info(f"PDF text extraction: {text_length} chars. Preview: {preview}")
+        # PII-safe: redacted per security audit
+        logger.info(f"PDF text extraction: {text_length} chars extracted")
         
         # Lower threshold for receipts (they're usually short)
         threshold = 50  # Reduced from 500
@@ -114,48 +119,47 @@ async def ocr_with_mistral(file_bytes: bytes, mime_type: str) -> str:
         # Note: You'll need to check Mistral's actual API documentation
         # This is a placeholder implementation
         
-        async with httpx.AsyncClient(timeout=settings.OCR_TIMEOUT_MS / 1000) as client:
-            # Convert bytes to base64 for API
-            import base64
-            encoded_content = base64.b64encode(file_bytes).decode('utf-8')
-            
-            response = await client.post(
-                "https://api.mistral.ai/v1/chat/completions",  # Correct Mistral endpoint
-                headers={
-                    "Authorization": f"Bearer {settings.MISTRAL_API_KEY}",
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "model": "pixtral-12b-2409",  # Updated model name
-                    "messages": [
-                        {
-                            "role": "user",
-                            "content": [
-                                {
-                                    "type": "text",
-                                    "text": "Extract all text from this receipt/invoice image. Return only the text content, preserving the layout and structure."
-                                },
-                                {
-                                    "type": "image_url",
-                                    "image_url": f"data:{mime_type};base64,{encoded_content}"
-                                }
-                            ]
-                        }
-                    ]
-                }
-            )
-            
-            response.raise_for_status()
-            result = response.json()
-            
-            # Extract text from response
-            text = result.get('choices', [{}])[0].get('message', {}).get('content', '')
-            
-            if not text:
-                raise Exception("No text extracted from Mistral OCR")
-            
-            logger.info(f"Mistral OCR extracted {len(text)} characters")
-            return text.strip()
+        # Convert bytes to base64 for API
+        import base64
+        encoded_content = base64.b64encode(file_bytes).decode('utf-8')
+
+        response = await _httpx_client.post(
+            "https://api.mistral.ai/v1/chat/completions",  # Correct Mistral endpoint
+            headers={
+                "Authorization": f"Bearer {settings.MISTRAL_API_KEY}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": "pixtral-12b-2409",  # Updated model name
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": "Extract all text from this receipt/invoice image. Return only the text content, preserving the layout and structure."
+                            },
+                            {
+                                "type": "image_url",
+                                "image_url": f"data:{mime_type};base64,{encoded_content}"
+                            }
+                        ]
+                    }
+                ]
+            }
+        )
+
+        response.raise_for_status()
+        result = response.json()
+
+        # Extract text from response
+        text = result.get('choices', [{}])[0].get('message', {}).get('content', '')
+
+        if not text:
+            raise Exception("No text extracted from Mistral OCR")
+
+        logger.info(f"Mistral OCR extracted {len(text)} characters")
+        return text.strip()
             
     except Exception as e:
         logger.error(f"Mistral OCR failed: {str(e)}")

@@ -2,17 +2,18 @@
 
 import logging
 import time
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from app.models.document import ExtractRequest, ExtractResponse
 from app.services.supabase_service import download_file_from_storage, update_document_status
 from app.services.extraction_service import extract_text
+from app.core.auth import get_current_user
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
 @router.post("", response_model=ExtractResponse)
-async def extract_document_text(request: ExtractRequest):
+async def extract_document_text(request: ExtractRequest, current_user: str = Depends(get_current_user)):
     """
     Extract text from document using appropriate method.
     

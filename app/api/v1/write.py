@@ -1,16 +1,17 @@
 """Document status update endpoint."""
 
 import logging
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from app.models.document import WriteRequest, WriteResponse
 from app.services.supabase_service import update_document_status
+from app.core.auth import get_current_user
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
 @router.post("", response_model=WriteResponse)
-async def write_transaction(request: WriteRequest):
+async def write_transaction(request: WriteRequest, current_user: str = Depends(get_current_user)):
     """
     Update document with validated data, mark as ready for user action.
     
