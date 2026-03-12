@@ -27,6 +27,7 @@ create table public.documents (
   content_hash text null,
   processing_started_at timestamp with time zone null,
   processing_log jsonb not null default '[]'::jsonb,
+  document_origin text null default 'unknown'::text,
   constraint documents_pkey primary key (id),
   constraint documents_suggested_payment_method_id_fkey foreign KEY (suggested_payment_method_id) references payment_methods (id),
   constraint documents_created_expense_id_fkey foreign KEY (created_expense_id) references expense (id),
@@ -52,14 +53,36 @@ create table public.documents (
   ),
   constraint documents_document_type_check check (
     (
-      document_type = any (
+      (document_type is null)
+      or document_type = any (
         array[
           'receipt'::text,
           'invoice'::text,
           'bank_statement'::text,
-          'other'::text
+          'other'::text,
+          'ea_form'::text,
+          'cp22_form'::text,
+          'cp22a_form'::text,
+          'donation_receipt'::text,
+          'zakat_receipt'::text,
+          'insurance_statement'::text,
+          'medical_receipt'::text,
+          'medical_letter'::text,
+          'education_enrollment'::text,
+          'sspn_statement'::text,
+          'prs_statement'::text,
+          'loan_statement'::text,
+          'identity_document'::text,
+          'epf_statement'::text,
+          'socso_statement'::text,
+          'e_invoice'::text
         ]
       )
+    )
+  ),
+  constraint documents_document_origin_check check (
+    (
+      document_origin = any (array['paper'::text, 'digital'::text, 'unknown'::text])
     )
   ),
   constraint documents_ai_confidence_score_check check (
