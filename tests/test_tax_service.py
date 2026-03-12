@@ -1,10 +1,13 @@
-"""Unit tests for tax cap enforcement helpers."""
+"""Unit tests for tax helpers."""
 
 import os
 
 os.environ.setdefault("SUPABASE_JWT_SECRET", "test-secret")
 
-from app.services.tax_service import _calculate_eligible_amount
+from app.services.tax_service import (
+    _calculate_eligible_amount,
+    _derive_relief_suggestion_flags,
+)
 
 
 def test_calculate_eligible_amount_with_no_caps_returns_claimed_amount():
@@ -55,3 +58,29 @@ def test_calculate_eligible_amount_uses_the_tighter_of_sub_limit_and_group_cap()
     )
 
     assert eligible == 100.0
+
+
+def test_relief_suggestion_flags_only_auto_apply_for_safe_strong_matches():
+    """Only the five safe receipt-driven mappings should auto-apply."""
+    requires_manual_confirmation, should_auto_apply = _derive_relief_suggestion_flags(
+        category_code="LIFESTYLE_BOOKS_PUBLICATIONS",
+        mapping_strength="strong",
+        confidence=0.95,
+        requires_manual_override=False,
+    )
+
+    assert requires_manual_confirmation is False
+    assert should_auto_apply is True
+
+
+def test_relief_suggestion_flags_force_manual_confirmation_for_non_safe_codes():
+    """Strong mappings outside the allow-list still need human confirmation."""
+    requires_manual_confirmation, should_auto_apply = _derive_relief_suggestion_flags(
+        category_code="LIFESTYLE_TECH_DEVICES",
+        mapping_strength="strong",
+        confidence=0.99,
+        requires_manual_override=False,
+    )
+
+    assert requires_manual_confirmation is True
+    assert should_auto_apply is False

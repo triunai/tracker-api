@@ -52,10 +52,64 @@ from app.models.tax import (
 
 logger = logging.getLogger(__name__)
 
+_SAFE_AUTO_RELIEF_CODES = {
+    "LIFESTYLE_BOOKS_PUBLICATIONS",
+    "LIFESTYLE_MONTHLY_INTERNET",
+    "CHILD_CARE_FEES",
+    "GYM_MEMBERSHIP_TRAINING",
+    "SPORTS_EQUIPMENT",
+}
+
 
 def _current_timestamp() -> str:
     """Return a UTC ISO timestamp for PostgREST updates."""
     return datetime.now(UTC).replace(tzinfo=None).isoformat()
+
+
+def _derive_relief_suggestion_flags(
+    category_code: str,
+    mapping_strength: str,
+    confidence: float,
+    requires_manual_override: bool,
+) -> tuple[bool, bool]:
+    """Return (requires_manual_confirmation, should_auto_apply) for a suggestion."""
+    should_auto_apply = (
+        category_code in _SAFE_AUTO_RELIEF_CODES
+        and mapping_strength == "strong"
+        and confidence >= 0.90
+        and not requires_manual_override
+    )
+    requires_manual_confirmation = not should_auto_apply
+    return requires_manual_confirmation, should_auto_apply
+
+
+def _build_relief_suggestion(
+    mapping: dict,
+    category: dict,
+) -> ReliefSuggestion:
+    """Build a consistent suggestion payload for tax and parsing flows."""
+    confidence = float(mapping.get("confidence_score") or 0.0)
+    requires_manual_override = bool(mapping.get("requires_manual_override"))
+    requires_manual_confirmation, should_auto_apply = _derive_relief_suggestion_flags(
+        category_code=category["code"],
+        mapping_strength=mapping["mapping_strength"],
+        confidence=confidence,
+        requires_manual_override=requires_manual_override,
+    )
+
+    return ReliefSuggestion(
+        tax_relief_category_id=category["id"],
+        category_code=category["code"],
+        category_name=category["name"],
+        display_group=category["display_group"],
+        max_amount=category.get("max_amount"),
+        mapping_strength=mapping["mapping_strength"],
+        confidence=confidence,
+        requires_manual_override=requires_manual_override,
+        requires_manual_confirmation=requires_manual_confirmation,
+        should_auto_apply=should_auto_apply,
+        notes=mapping.get("notes"),
+    )
 
 
 # =============================================================================
@@ -1074,19 +1128,7 @@ async def suggest_relief(
         if not cat:
             continue  # Category was deactivated or not found
 
-        suggestions.append(
-            ReliefSuggestion(
-                tax_relief_category_id=cat["id"],
-                category_code=cat["code"],
-                category_name=cat["name"],
-                display_group=cat["display_group"],
-                max_amount=cat.get("max_amount"),
-                mapping_strength=mapping["mapping_strength"],
-                confidence=mapping["confidence_score"],
-                requires_manual_override=mapping["requires_manual_override"],
-                notes=mapping.get("notes"),
-            )
-        )
+        suggestions.append(_build_relief_suggestion(mapping, cat))
 
     # Sort by confidence descending — best suggestions first
     suggestions.sort(key=lambda s: s.confidence, reverse=True)
@@ -1116,7 +1158,7 @@ async def auto_suggest_from_expense(
     # Step 1: Fetch the expense to verify ownership.
     expense_result = (
         supabase.table("expense")
-        .select("id")
+        .select("id, date")
         .eq("id", expense_id)
         .eq("user_id", user_id)
         .eq("isdeleted", False)
@@ -1148,7 +1190,15 @@ async def auto_suggest_from_expense(
     # Step 2: Look up suggestions for this expense category
     # Default to YA 2025 — in the future this could be derived from the
     # expense date (expenses in 2025 -> YA 2025)
-    return await suggest_relief(user_id, category_id, year=2025)
+    expense_year = 2025
+    expense_date = expense_result.data[0].get("date")
+    if isinstance(expense_date, str) and len(expense_date) >= 4:
+        try:
+            expense_year = max(int(expense_date[:4]), 2025)
+        except ValueError:
+            expense_year = 2025
+
+    return await suggest_relief(user_id, category_id, year=expense_year)
 
 
 # =============================================================================

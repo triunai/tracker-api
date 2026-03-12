@@ -3,12 +3,18 @@
 import json
 import logging
 import hashlib
+from datetime import datetime
 from typing import Dict, List, Any, Optional
 from openai import AsyncOpenAI
 from app.core.config import settings
-from app.models.document import FieldValue, ParsedItem
+from app.services import tax_service
 
 logger = logging.getLogger(__name__)
+
+_TAX_SCHEMA_HINTS = (
+    "tax_relief_category",
+    "expense_category_tax_relief_mapping",
+)
 
 
 async def fetch_categories_and_payment_methods() -> Dict[str, List[Dict[str, Any]]]:
@@ -58,6 +64,57 @@ async def fetch_categories_and_payment_methods() -> Dict[str, List[Dict[str, Any
 
 # Singleton: reuse connection pool across requests
 _openai_client: Optional[AsyncOpenAI] = None
+
+
+def _extract_field_value(parsed_data: Dict[str, Any], field_name: str, default: Any = None) -> Any:
+    """Safely extract a parsed field value from the LLM payload."""
+    raw_value = parsed_data.get(field_name, default)
+    if isinstance(raw_value, dict):
+        return raw_value.get("value", default)
+    return raw_value
+
+
+def _derive_year_of_assessment(parsed_data: Dict[str, Any]) -> int:
+    """Infer the assessment year from the parsed transaction date."""
+    date_value = _extract_field_value(parsed_data, "date")
+    if not isinstance(date_value, str):
+        return 2025
+
+    try:
+        return max(datetime.strptime(date_value, "%Y-%m-%d").year, 2025)
+    except ValueError:
+        return 2025
+
+
+async def fetch_tax_relief_suggestions(
+    expense_category_id: Optional[int],
+    year_of_assessment: int,
+) -> list[dict[str, Any]]:
+    """Fetch tax-relief suggestions without breaking parsing if the tax schema is absent."""
+    if expense_category_id is None:
+        return []
+
+    try:
+        suggestions = await tax_service.suggest_relief(
+            user_id="system",
+            expense_category_id=expense_category_id,
+            year=year_of_assessment,
+        )
+        return [suggestion.model_dump() for suggestion in suggestions]
+    except Exception as exc:
+        message = str(exc).lower()
+        if any(token in message for token in _TAX_SCHEMA_HINTS):
+            logger.info(
+                "Tax suggestion lookup skipped because tax schema is not ready "
+                f"(expense_category_id={expense_category_id}, year={year_of_assessment})"
+            )
+            return []
+
+        logger.warning(
+            "Tax suggestion lookup failed "
+            f"(expense_category_id={expense_category_id}, year={year_of_assessment}): {exc}"
+        )
+        return []
 
 
 def get_openai_client() -> AsyncOpenAI:
@@ -145,10 +202,15 @@ Extract the following fields with confidence scores (0.0-1.0):
 - suggested_payment_method_id: Best matching payment method ID if payment type is clear
 
 IMPORTANT CATEGORY MATCHING RULES:
-- For restaurants, cafes, food delivery → Use "Eating Out" category
-- For supermarkets, grocery stores → Use "Groceries" category
-- For petrol stations, gas stations → Use "Petrol" category
-- For medical, pharmacy, health → Use "Health" category
+- For restaurants, cafes, food delivery -> Use "Eating Out" category
+- For supermarkets, grocery stores -> Use "Groceries" category
+- For petrol stations, gas stations -> Use "Petrol" category
+- For medical, pharmacy, health -> Use "Health" category
+- For books, magazines, and newspapers -> Use "Books" category when available
+- For monthly broadband or mobile data bills -> Use "Internet" category when available
+- For childcare centre or kindergarten fees -> Use "Childcare" category when available
+- For gym memberships or training plans -> Use "Gym" category when available
+- For sports gear purchases -> Use "Sports" category when available
 - Match based on merchant name AND item descriptions
 - If unclear, choose the most reasonable category
 - Always provide a suggested_category_id (don't leave it null)
@@ -245,15 +307,10 @@ async def parse_receipt_with_llm(raw_text: str, document_id: int) -> Dict[str, A
         if not isinstance(parsed_data, dict):
             raise Exception("LLM returned invalid structure")
         
-        # Calculate signature for duplicate detection (with safer extraction)
-        merchant_field = parsed_data.get('merchant', {})
-        merchant = merchant_field.get('value', 'unknown') if isinstance(merchant_field, dict) else str(merchant_field) if merchant_field else 'unknown'
-        
-        date_field = parsed_data.get('date', {})
-        date = date_field.get('value', 'unknown') if isinstance(date_field, dict) else str(date_field) if date_field else 'unknown'
-        
-        total_field = parsed_data.get('total', {})
-        total = total_field.get('value', 0) if isinstance(total_field, dict) else (total_field if total_field else 0)
+        # Calculate signature for duplicate detection.
+        merchant = _extract_field_value(parsed_data, 'merchant', 'unknown')
+        date = _extract_field_value(parsed_data, 'date', 'unknown')
+        total = _extract_field_value(parsed_data, 'total', 0)
         
         signature_str = f"{merchant}|{date}|{total}"
         signature = hashlib.sha256(signature_str.encode()).hexdigest()
@@ -266,15 +323,9 @@ async def parse_receipt_with_llm(raw_text: str, document_id: int) -> Dict[str, A
         # Check for inconsistencies
         inconsistencies = []
         
-        # Safely extract values
-        subtotal_field = parsed_data.get('subtotal', {})
-        subtotal = subtotal_field.get('value') if isinstance(subtotal_field, dict) else subtotal_field
-        
-        tax_field = parsed_data.get('tax', {})
-        tax = tax_field.get('value') if isinstance(tax_field, dict) else tax_field
-        
-        total_val_field = parsed_data.get('total', {})
-        total_val = total_val_field.get('value') if isinstance(total_val_field, dict) else total_val_field
+        subtotal = _extract_field_value(parsed_data, 'subtotal')
+        tax = _extract_field_value(parsed_data, 'tax')
+        total_val = _extract_field_value(parsed_data, 'total')
         
         if subtotal and tax and total_val:
             calculated_total = subtotal + tax
@@ -282,7 +333,18 @@ async def parse_receipt_with_llm(raw_text: str, document_id: int) -> Dict[str, A
                 inconsistencies.append(f"Math error: {subtotal} + {tax} ≠ {total_val}")
         
         parsed_data['inconsistencies'] = inconsistencies
-        
+
+        suggested_category_id = _extract_field_value(parsed_data, 'suggested_category_id')
+        try:
+            parsed_category_id = int(suggested_category_id) if suggested_category_id is not None else None
+        except (TypeError, ValueError):
+            parsed_category_id = None
+
+        parsed_data['tax_relief_suggestions'] = await fetch_tax_relief_suggestions(
+            expense_category_id=parsed_category_id,
+            year_of_assessment=_derive_year_of_assessment(parsed_data),
+        )
+
         logger.info(f"Successfully parsed document {document_id}")
         return parsed_data
         
