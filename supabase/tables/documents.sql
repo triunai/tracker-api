@@ -12,7 +12,7 @@ create table public.documents (
   vendor_name text null,
   transaction_date date null,
   total_amount numeric(10, 2) null,
-  currency text null default 'USD'::text,
+  currency text null default 'MYR'::text,
   transaction_type text null,
   suggested_category_id bigint null,
   suggested_category_type text null,

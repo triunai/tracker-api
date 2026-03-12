@@ -1,16 +1,17 @@
 """Validation endpoint."""
 
 import logging
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from app.models.document import ValidateRequest, ValidateResponse
 from app.services.validation_service import validate_parsed_data, normalize_fields
+from app.core.auth import get_current_user
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
 @router.post("", response_model=ValidateResponse)
-async def validate_document(request: ValidateRequest):
+async def validate_document(request: ValidateRequest, current_user: str = Depends(get_current_user)):
     """
     Validate parsed document data with business rules.
     

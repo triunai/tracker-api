@@ -4,7 +4,7 @@ import json
 import logging
 import hashlib
 from typing import Dict, List, Any, Optional
-from openai import OpenAI
+from openai import AsyncOpenAI
 from app.core.config import settings
 from app.models.document import FieldValue, ParsedItem
 
@@ -56,21 +56,31 @@ async def fetch_categories_and_payment_methods() -> Dict[str, List[Dict[str, Any
         }
 
 
-def get_openai_client() -> OpenAI:
-    """Get configured OpenAI client."""
+# Singleton: reuse connection pool across requests
+_openai_client: Optional[AsyncOpenAI] = None
+
+
+def get_openai_client() -> AsyncOpenAI:
+    """Get configured async OpenAI client (singleton)."""
+    global _openai_client
+    if _openai_client is not None:
+        return _openai_client
+
     if settings.OPENROUTER_API_KEY:
         # Use OpenRouter
         logger.info("Using OpenRouter for LLM parsing")
-        return OpenAI(
+        _openai_client = AsyncOpenAI(
             api_key=settings.OPENROUTER_API_KEY,
             base_url="https://openrouter.ai/api/v1"
         )
     elif settings.OPENAI_API_KEY:
         # Use OpenAI directly
         logger.info("Using OpenAI for LLM parsing")
-        return OpenAI(api_key=settings.OPENAI_API_KEY)
+        _openai_client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
     else:
         raise Exception("No LLM API key configured. Set OPENROUTER_API_KEY or OPENAI_API_KEY")
+
+    return _openai_client
 
 
 def build_parsing_prompt(
@@ -208,7 +218,7 @@ async def parse_receipt_with_llm(raw_text: str, document_id: int) -> Dict[str, A
         
         logger.info(f"Parsing document {document_id} with {model}")
         
-        response = client.chat.completions.create(
+        response = await client.chat.completions.create(
             model=model,
             messages=[
                 {"role": "system", "content": "You are a precise receipt/invoice data extraction assistant. Return only valid JSON."},
@@ -225,9 +235,11 @@ async def parse_receipt_with_llm(raw_text: str, document_id: int) -> Dict[str, A
         if not content:
             raise Exception("LLM returned empty response")
         
-        logger.info(f"LLM response content (first 200 chars): {content[:200]}")
-        
         parsed_data = json.loads(content)
+
+        # PII-safe: redacted per security audit
+        field_count = len(parsed_data) if isinstance(parsed_data, dict) else 0
+        logger.info(f"LLM response received for document {document_id}: {field_count} fields, {len(content)} chars")
         
         # Validate parsed data structure
         if not isinstance(parsed_data, dict):

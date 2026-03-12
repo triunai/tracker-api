@@ -1,17 +1,18 @@
 """Document ingestion endpoint."""
 
 import logging
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from app.models.document import IngestRequest, IngestResponse
 from app.services.supabase_service import download_file_from_storage, update_document_status
 from app.services.extraction_service import calculate_sha256, detect_pdf_type
+from app.core.auth import get_current_user
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
 @router.post("", response_model=IngestResponse)
-async def ingest_document(request: IngestRequest):
+async def ingest_document(request: IngestRequest, current_user: str = Depends(get_current_user)):
     """
     Classify document type and prepare for extraction.
     
@@ -21,7 +22,16 @@ async def ingest_document(request: IngestRequest):
     - Calculates SHA256 hash for duplicate detection
     """
     try:
-        logger.info(f"Ingesting document for user {request.user_id}: {request.file_url}")
+        # Auth: use JWT-verified user_id, not the untrusted body field
+        if request.user_id and request.user_id != current_user:
+            logger.warning(
+                f"user_id mismatch: body={request.user_id}, jwt={current_user}. "
+                "Using JWT-verified identity."
+            )
+
+        # PII-safe: redacted per security audit
+        file_ext = request.file_url.rsplit('.', 1)[-1] if '.' in request.file_url else 'unknown'
+        logger.info(f"Ingesting document {request.document_id} for user {current_user} (type=.{file_ext}, mime={request.mime_type})")
         
         # Download file from Supabase storage
         try:

@@ -8,7 +8,7 @@ from datetime import datetime
 class IngestRequest(BaseModel):
     """Request to ingest a document."""
     document_id: int
-    user_id: str
+    user_id: Optional[str] = None  # DEPRECATED: user identity now comes from JWT auth, not the request body
     file_url: str
     mime_type: str
 

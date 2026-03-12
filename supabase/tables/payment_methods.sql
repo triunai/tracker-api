@@ -6,13 +6,33 @@ create table public.payment_methods (
   updated_by uuid null,
   updated_at timestamp without time zone null,
   isdeleted boolean not null default false,
-  constraint payment_methods_pkey primary key (id),
-  constraint payment_methods_method_name_key unique (method_name)
+  user_id uuid null,
+  icon text null,
+  constraint payment_methods_pkey primary key (id)
 ) TABLESPACE pg_default;
 
+create unique INDEX IF not exists ux_payment_methods_global_name on public.payment_methods using btree (method_name) TABLESPACE pg_default
+where
+  (
+    (user_id is null)
+    and (isdeleted = false)
+  );
 
-//GLOBAL DEFAULTS DOWN HERE
+create unique INDEX IF not exists ux_payment_methods_user_name on public.payment_methods using btree (user_id, method_name) TABLESPACE pg_default
+where
+  (
+    (user_id is not null)
+    and (isdeleted = false)
+  );
 
+create index IF not exists idx_payment_methods_user on public.payment_methods using btree (user_id) TABLESPACE pg_default
+where
+  (isdeleted = false);
+
+create trigger set_user_id_payment_methods BEFORE INSERT on payment_methods for EACH row
+execute FUNCTION set_user_id_on_insert ();
+
+// GLOBAL DEFAULTS DOWN HERE
 [
   {
     "id": 1,

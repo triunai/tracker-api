@@ -1,17 +1,18 @@
 """LLM parsing endpoint."""
 
 import logging
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from app.models.document import ParseRequest, ParseResponse, FieldValue, ParsedItem
 from app.services.supabase_service import update_document_status
 from app.services.parsing_service import parse_receipt_with_llm
+from app.core.auth import get_current_user
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
 @router.post("", response_model=ParseResponse)
-async def parse_document(request: ParseRequest):
+async def parse_document(request: ParseRequest, current_user: str = Depends(get_current_user)):
     """
     Parse extracted text using LLM to extract structured data.
     
